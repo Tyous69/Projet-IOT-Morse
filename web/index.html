@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traducteur Morse IoT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <h1>Traducteur Morse IoT</h1>
+                <div class="auth-section" id="authSection">
+                    <button id="loginBtn">Connexion</button>
+                    <button id="registerBtn">Inscription</button>
+                </div>
+                <div class="user-section" id="userSection" style="display: none;">
+                    <span id="usernameDisplay"></span>
+                    <button id="logoutBtn">Déconnexion</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="main-content">
+            <!-- Section Connexion MQTT -->
+            <div class="card">
+                <h2>Connexion MQTT</h2>
+                <div class="input-group">
+                    <label for="mqttServer">Serveur MQTT</label>
+                    <input type="text" id="mqttServer" placeholder="ws://broker.hivemq.com:8000/mqtt" value="ws://broker.hivemq.com:8000/mqtt">
+                </div>
+                <div class="input-group">
+                    <label for="deviceId">ID de l'appareil</label>
+                    <input type="text" id="deviceId" placeholder="ESP32_MORSE_001">
+                </div>
+                <button id="connectBtn">Se connecter à MQTT</button>
+                <div id="mqttStatus" class="status disconnected">Déconnecté</div>
+            </div>
+
+            <!-- Section Traducteur Morse -->
+            <div class="card">
+                <h2>Traducteur Morse</h2>
+                <div class="morse-controls">
+                    <button id="dotBtn" class="morse-btn dot-btn">• (Point)</button>
+                    <button id="dashBtn" class="morse-btn dash-btn">- (Tiret)</button>
+                    <div class="half-buttons">
+                        <button id="spaceBtn" class="morse-btn half-btn space-btn">Espace</button>
+                        <button id="validateBtn" class="morse-btn half-btn validate-btn">Valider</button>
+                    </div>
+                    <button id="clearBtn" class="morse-btn clear-btn">Effacer</button>
+                </div>
+                <div class="input-group">
+                    <label for="morseCode">Code Morse</label>
+                    <input type="text" id="morseCode" placeholder="Code morse apparaîtra ici..." readonly>
+                </div>
+                <button id="translateBtn">Traduire</button>
+                <div class="input-group">
+                    <label for="translationResult">Traduction</label>
+                    <input type="text" id="translationResult" placeholder="Résultat de traduction..." readonly>
+                </div>
+            </div>
+
+            <!-- Section Messages Reçus -->
+            <div class="card full-width">
+                <h2>Messages de l'ESP32</h2>
+                <div id="receivedMessages" class="messages-container">
+                    <div class="message">En attente de messages...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Connexion</h2>
+            <div class="input-group">
+                <label for="loginUsername">Nom d'utilisateur</label>
+                <input type="text" id="loginUsername">
+            </div>
+            <div class="input-group">
+                <label for="loginPassword">Mot de passe</label>
+                <input type="password" id="loginPassword">
+            </div>
+            <button id="confirmLogin">Se connecter</button>
+        </div>
+    </div>
+
+    <div id="registerModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Inscription</h2>
+            <div class="input-group">
+                <label for="registerUsername">Nom d'utilisateur</label>
+                <input type="text" id="registerUsername">
+            </div>
+            <div class="input-group">
+                <label for="registerPassword">Mot de passe</label>
+                <input type="password" id="registerPassword">
+            </div>
+            <div class="input-group">
+                <label for="confirmPassword">Confirmer le mot de passe</label>
+                <input type="password" id="confirmPassword">
+            </div>
+            <button id="confirmRegister">S'inscrire</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
