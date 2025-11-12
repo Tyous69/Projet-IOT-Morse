@@ -7,6 +7,6 @@ en bas a gauche de vs code y'a une fleche (fleche qui pointe a droite): cliquez 
 
 Commandes pour lancer la platforme web:
 ```
-cd projet-morse-iot/web
+cd .\Projet-IOT-Morse\web\
 python -m http.server 8000
 ```
