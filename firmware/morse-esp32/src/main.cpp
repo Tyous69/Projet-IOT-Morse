@@ -1,9 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-#include <ArduinoJson.h>
 
-// Configuration WiFi
+// Configuration WiFi - MODIFIEZ CES VALEURS
 const char* ssid = "VOTRE_WIFI_SSID";
 const char* password = "VOTRE_MOT_DE_PASSE_WIFI";
 
@@ -12,7 +11,7 @@ const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
 const char* device_id = "ESP32_MORSE_001";
 
-// Pins
+// Pins pour ESP32
 const int JOYSTICK_X_PIN = 34;
 const int JOYSTICK_BUTTON_PIN = 35;
 const int BUZZER_PIN = 25;
@@ -198,18 +197,21 @@ void translateMorse() {
 }
 
 char morseToChar(String morse) {
+  // Lettres (A-Z)
   for (int i = 0; i < 26; i++) {
     if (morse == morseLetters[i]) {
       return 'A' + i;
     }
   }
   
+  // Chiffres (0-9)
   for (int i = 0; i < 10; i++) {
     if (morse == morseNumbers[i]) {
       return '0' + i;
     }
   }
   
+  // Caractères spéciaux
   if (morse == ".-.-.-") return '.';
   if (morse == "--..--") return ',';
   if (morse == "..--..") return '?';
