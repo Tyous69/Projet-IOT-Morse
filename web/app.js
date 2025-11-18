@@ -25,6 +25,9 @@ let currentMorseCode = '';
 let isConnected = false;
 let currentUser = null;
 
+// URL du serveur backend
+const API_BASE_URL = 'http://localhost:3000';
+
 // Éléments DOM
 const elements = {
     // Boutons d'authentification
@@ -61,13 +64,91 @@ const elements = {
     receivedMessages: document.getElementById('receivedMessages')
 };
 
+// Fonctions API
+async function registerUser(username, password, confirmPassword) {
+    if (!username || !password) {
+        throw new Error('Veuillez remplir tous les champs');
+    }
+    
+    if (username.length < 3) {
+        throw new Error('Le nom d\'utilisateur doit contenir au moins 3 caractères');
+    }
+    
+    if (password.length < 6) {
+        throw new Error('Le mot de passe doit contenir au moins 6 caractères');
+    }
+    
+    if (password !== confirmPassword) {
+        throw new Error('Les mots de passe ne correspondent pas');
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/register`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ username, password }),
+        });
+
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.message);
+        }
+        
+        return data;
+    } catch (error) {
+        if (error.message.includes('Failed to fetch')) {
+            throw new Error('Impossible de se connecter au serveur. Vérifiez que le serveur est démarré.');
+        }
+        throw error;
+    }
+}
+
+async function loginUser(username, password) {
+    if (!username || !password) {
+        throw new Error('Veuillez remplir tous les champs');
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ username, password }),
+        });
+
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.message);
+        }
+        
+        return data;
+    } catch (error) {
+        if (error.message.includes('Failed to fetch')) {
+            throw new Error('Impossible de se connecter au serveur. Vérifiez que le serveur est démarré.');
+        }
+        throw error;
+    }
+}
+
 // Gestion de l'authentification
 function showLoginModal() {
     elements.loginModal.style.display = 'block';
+    // Réinitialiser les champs
+    document.getElementById('loginUsername').value = '';
+    document.getElementById('loginPassword').value = '';
 }
 
 function showRegisterModal() {
     elements.registerModal.style.display = 'block';
+    // Réinitialiser les champs
+    document.getElementById('registerUsername').value = '';
+    document.getElementById('registerPassword').value = '';
+    document.getElementById('confirmPassword').value = '';
 }
 
 function hideModals() {
@@ -75,38 +156,41 @@ function hideModals() {
     elements.registerModal.style.display = 'none';
 }
 
-function login(username, password) {
-    // Simulation d'authentification - À remplacer par une vraie API
-    if (username && password) {
-        currentUser = username;
-        localStorage.setItem('currentUser', username);
+async function login(username, password) {
+    try {
+        elements.confirmLogin.disabled = true;
+        elements.confirmLogin.textContent = 'Connexion...';
+        
+        const result = await loginUser(username, password);
+        currentUser = result.username;
+        localStorage.setItem('currentUser', currentUser);
         updateAuthUI();
         hideModals();
         addMessage('Connexion réussie!', 'success');
-    } else {
-        addMessage('Veuillez remplir tous les champs', 'error');
+    } catch (error) {
+        addMessage(error.message, 'error');
+    } finally {
+        elements.confirmLogin.disabled = false;
+        elements.confirmLogin.textContent = 'Se connecter';
     }
 }
 
-function register(username, password, confirmPassword) {
-    // Simulation d'inscription - À remplacer par une vraie API
-    if (!username || !password) {
-        addMessage('Veuillez remplir tous les champs', 'error');
-        return;
+async function register(username, password, confirmPassword) {
+    try {
+        elements.confirmRegister.disabled = true;
+        elements.confirmRegister.textContent = 'Inscription...';
+        
+        await registerUser(username, password, confirmPassword);
+        addMessage('Inscription réussie! Vous pouvez maintenant vous connecter.', 'success');
+        hideModals();
+        // Afficher automatiquement le modal de connexion après inscription
+        setTimeout(() => showLoginModal(), 1000);
+    } catch (error) {
+        addMessage(error.message, 'error');
+    } finally {
+        elements.confirmRegister.disabled = false;
+        elements.confirmRegister.textContent = 'S\'inscrire';
     }
-    
-    if (password !== confirmPassword) {
-        addMessage('Les mots de passe ne correspondent pas', 'error');
-        return;
-    }
-    
-    // Sauvegarder l'utilisateur (dans un vrai projet, utiliser une API)
-    const users = JSON.parse(localStorage.getItem('users') || '{}');
-    users[username] = { password: password };
-    localStorage.setItem('users', JSON.stringify(users));
-    
-    addMessage('Inscription réussie! Vous pouvez maintenant vous connecter.', 'success');
-    hideModals();
 }
 
 function logout() {
@@ -127,6 +211,9 @@ function updateAuthUI() {
         elements.userSection.style.display = 'none';
     }
 }
+
+// Le reste du code reste inchangé...
+// [Gestion MQTT, gestion du code Morse, etc. - conservez tout le code existant à partir d'ici]
 
 // Gestion MQTT
 function connectMQTT() {
