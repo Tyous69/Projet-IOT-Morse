@@ -1,283 +1,232 @@
-#include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-// Configuration WiFi - MODIFIEZ CES VALEURS
-const char* ssid = "VOTRE_WIFI_SSID";
-const char* password = "VOTRE_MOT_DE_PASSE_WIFI";
+// ==================== CONFIGURATION ====================
+const char* ssid = "TON_WIFI_SSID";
+const char* password = "TON_WIFI_PASSWORD";
 
-// Configuration MQTT
+// MQTT Broker
 const char* mqtt_server = "broker.hivemq.com";
-const int mqtt_port = 1883;
-const char* device_id = "ESP32_MORSE_001";
+const int mqtt_port = 8000;
 
-// Pins pour ESP32
-const int JOYSTICK_X_PIN = 34;
-const int JOYSTICK_BUTTON_PIN = 35;
-const int BUZZER_PIN = 25;
-const int LED_PIN = 2;
+// ID de l'appareil - À CHANGER SI BESOIN
+const char* deviceId = "ESP32_MORSE_001";
 
-// Variables Morse
-String currentMorse = "";
-unsigned long lastInputTime = 0;
-const unsigned long MORSE_TIMEOUT = 2000;
+// Broches du joystick
+#define JOYSTICK_X 34    // Analog pin pour X
+#define JOYSTICK_Y 35    // Analog pin pour Y
+#define JOYSTICK_BUTTON 32  // Digital pin pour le bouton
 
+// Seuils pour la détection des directions
+#define THRESHOLD_LOW 1000
+#define THRESHOLD_HIGH 3000
+#define DEBOUNCE_DELAY 200  // Délai anti-rebond en ms
+
+// ==================== VARIABLES GLOBALES ====================
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// Dictionnaire Morse
-const char* morseLetters[] = {
-  ".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", 
-  ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.",
-  "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.."
-};
+String currentMorse = "";  // Stocke le code morse en cours
+unsigned long lastJoystickAction = 0;
+bool lastButtonState = HIGH;
 
-const char* morseNumbers[] = {
-  "-----", ".----", "..---", "...--", "....-", ".....", 
-  "-....", "--...", "---..", "----."
-};
-
-void setupWiFi();
-void setupMQTT();
-void reconnectMQTT();
-void mqttCallback(char* topic, byte* payload, unsigned int length);
-void addMorseSymbol(char symbol);
-void addSpace();
-void translateMorse();
-char morseToChar(String morse);
-void beep(int duration);
-void blinkLED(int times);
-void readJoystick();
-void checkMorseTimeout();
-
-void setup() {
-  Serial.begin(115200);
-  
-  // Configuration des pins
-  pinMode(JOYSTICK_BUTTON_PIN, INPUT_PULLUP);
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(LED_PIN, OUTPUT);
-  
-  digitalWrite(LED_PIN, LOW);
-  
-  setupWiFi();
-  setupMQTT();
-  
-  Serial.println("Setup terminé - Prêt à utiliser");
-  digitalWrite(LED_PIN, HIGH);
-}
-
+// ==================== FONCTIONS WiFi ====================
 void setupWiFi() {
-  delay(10);
-  Serial.println();
   Serial.print("Connexion à ");
   Serial.println(ssid);
 
   WiFi.begin(ssid, password);
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-    attempts++;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("");
-    Serial.println("WiFi connecté");
-    Serial.print("Adresse IP: ");
-    Serial.println(WiFi.localIP());
-    digitalWrite(LED_PIN, HIGH);
-  } else {
-    Serial.println("");
-    Serial.println("Échec de connexion WiFi");
-    digitalWrite(LED_PIN, LOW);
-  }
+  Serial.println("");
+  Serial.println("WiFi connecté");
+  Serial.println("Adresse IP: ");
+  Serial.println(WiFi.localIP());
 }
 
-void setupMQTT() {
-  client.setServer(mqtt_server, mqtt_port);
-  client.setCallback(mqttCallback);
-}
-
-void reconnectMQTT() {
-  int attempts = 0;
-  while (!client.connected() && attempts < 5) {
-    Serial.print("Tentative de connexion MQTT...");
-    
-    if (client.connect(device_id)) {
-      Serial.println("connecté");
-      String subscribeTopic = "morse/" + String(device_id) + "/from_web";
-      client.subscribe(subscribeTopic.c_str());
-      
-      String statusTopic = "morse/" + String(device_id) + "/status";
-      client.publish(statusTopic.c_str(), "ESP32 connecté");
-    } else {
-      Serial.print("échec, rc=");
-      Serial.print(client.state());
-      Serial.println(" nouvelle tentative dans 5 secondes");
-      delay(5000);
-      attempts++;
-    }
-  }
-}
-
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
+// ==================== FONCTIONS MQTT ====================
+void callback(char* topic, byte* payload, unsigned int length) {
+  // Convertir le payload en String
   String message = "";
   for (int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
-  
+
   Serial.print("Message reçu [");
   Serial.print(topic);
   Serial.print("]: ");
   Serial.println(message);
 
-  if (message == "DOT") {
-    addMorseSymbol('.');
-  } else if (message == "DASH") {
-    addMorseSymbol('-');
-  } else if (message == "SPACE") {
-    addSpace();
-  } else if (message.startsWith("TRANSLATION:")) {
-    String translation = message.substring(12);
-    String responseTopic = "morse/" + String(device_id) + "/from_device";
-    String responseMsg = "TRANSLATION_RECEIVED:" + translation;
-    client.publish(responseTopic.c_str(), responseMsg.c_str());
+  // Traiter les commandes du site web
+  if (String(topic) == String("morse/") + deviceId + "/from_web") {
+    if (message == "DOT") {
+      addToMorse(".");
+      playDot();
+    } else if (message == "DASH") {
+      addToMorse("-");
+      playDash();
+    } else if (message == "SPACE") {
+      addToMorse(" ");
+    } else if (message.startsWith("TRANSLATION:")) {
+      String translation = message.substring(12);
+      Serial.println("Traduction reçue: " + translation);
+    }
   }
 }
 
-void addMorseSymbol(char symbol) {
+void reconnectMQTT() {
+  while (!client.connected()) {
+    Serial.print("Tentative de connexion MQTT...");
+    
+    // ID client unique
+    String clientId = "ESP32Client-" + String(random(0xffff), HEX);
+    
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connecté!");
+      
+      // S'abonner aux topics
+      String subscribeTopic = String("morse/") + deviceId + "/from_web";
+      client.subscribe(subscribeTopic.c_str());
+      
+      // Publier le statut "prêt"
+      String statusTopic = String("morse/") + deviceId + "/status";
+      client.publish(statusTopic.c_str(), "DEVICE_READY");
+      
+    } else {
+      Serial.print("échec, rc=");
+      Serial.print(client.state());
+      Serial.println(" nouvel essai dans 5s");
+      delay(5000);
+    }
+  }
+}
+
+// ==================== FONCTIONS MORSE ====================
+void addToMorse(String symbol) {
   currentMorse += symbol;
-  lastInputTime = millis();
+  Serial.println("Code Morse: " + currentMorse);
   
-  beep(symbol == '.' ? 100 : 300);
-  blinkLED(symbol == '.' ? 1 : 3);
-  
-  String topic = "morse/" + String(device_id) + "/from_device";
-  String message = "MORSE:" + currentMorse;
-  client.publish(topic.c_str(), message.c_str());
-  
-  Serial.print("Symbole ajouté: ");
-  Serial.println(symbol);
+  // Envoyer le code morse actuel au site web
+  String morseTopic = String("morse/") + deviceId + "/from_device";
+  client.publish(morseTopic.c_str(), ("MORSE:" + currentMorse).c_str());
 }
 
-void addSpace() {
-  if (currentMorse.length() == 0) {
-    String topic = "morse/" + String(device_id) + "/from_device";
-    client.publish(topic.c_str(), "SPACE");
-    Serial.println("Espace ajouté");
-  } else {
-    translateMorse();
-    currentMorse = "";
-  }
-  lastInputTime = millis();
+void playDot() {
+  Serial.println("BIP: Point (•)");
+  // Ici tu peux ajouter un buzzer ou une LED
+  // tone(BUZZER_PIN, 1000, 100); // Bip court
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(100);
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
-void translateMorse() {
-  if (currentMorse.length() == 0) return;
-  
-  char translatedChar = morseToChar(currentMorse);
-  
-  if (translatedChar != '?') {
-    beep(200);
-    delay(100);
-    beep(200);
-  }
-  
-  String topic = "morse/" + String(device_id) + "/from_device";
-  String message = "CHAR:";
-  message += translatedChar;
-  client.publish(topic.c_str(), message.c_str());
-  
-  Serial.print("Caractère traduit: '");
-  Serial.print(translatedChar);
-  Serial.println("'");
+void playDash() {
+  Serial.println("BIP: Tiret (-)");
+  // tone(BUZZER_PIN, 1000, 300); // Bip long
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(300);
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
-char morseToChar(String morse) {
-  // Lettres (A-Z)
-  for (int i = 0; i < 26; i++) {
-    if (morse == morseLetters[i]) {
-      return 'A' + i;
-    }
-  }
-  
-  // Chiffres (0-9)
-  for (int i = 0; i < 10; i++) {
-    if (morse == morseNumbers[i]) {
-      return '0' + i;
-    }
-  }
-  
-  // Caractères spéciaux
-  if (morse == ".-.-.-") return '.';
-  if (morse == "--..--") return ',';
-  if (morse == "..--..") return '?';
-  if (morse == "-....-") return '-';
-  if (morse == "-..-.") return '/';
-  
-  return '?';
-}
-
-void beep(int duration) {
-  digitalWrite(BUZZER_PIN, HIGH);
-  delay(duration);
-  digitalWrite(BUZZER_PIN, LOW);
-}
-
-void blinkLED(int times) {
-  for (int i = 0; i < times; i++) {
-    digitalWrite(LED_PIN, LOW);
-    delay(100);
-    digitalWrite(LED_PIN, HIGH);
-    if (i < times - 1) delay(100);
+void validateCharacter() {
+  if (currentMorse.length() > 0) {
+    Serial.println("Validation du caractère: " + currentMorse);
+    
+    // Ici tu peux ajouter la logique de traduction morse→texte
+    // Pour l'instant on envoie juste le code morse
+    
+    String translationTopic = String("morse/") + deviceId + "/from_device";
+    client.publish(translationTopic.c_str(), ("TRANSLATION:" + currentMorse).c_str());
+    
+    currentMorse = "";  // Reset pour le prochain caractère
   }
 }
 
-void readJoystick() {
-  static unsigned long lastJoystickRead = 0;
-  if (millis() - lastJoystickRead < 200) return;
-  
-  int xValue = analogRead(JOYSTICK_X_PIN);
-  int buttonState = digitalRead(JOYSTICK_BUTTON_PIN);
-  
-  if (xValue < 1000) {
-    addMorseSymbol('.');
-    lastJoystickRead = millis();
-  } else if (xValue > 3000) {
-    addMorseSymbol('-');
-    lastJoystickRead = millis();
-  }
-  
-  if (buttonState == LOW) {
-    addSpace();
-    lastJoystickRead = millis();
-  }
+void clearMorse() {
+  currentMorse = "";
+  Serial.println("Code Morse effacé");
 }
 
-void checkMorseTimeout() {
-  if (currentMorse.length() > 0 && millis() - lastInputTime > MORSE_TIMEOUT) {
-    Serial.println("Timeout - Traduction automatique");
-    translateMorse();
-    currentMorse = "";
+// ==================== FONCTIONS JOYSTICK ====================
+void handleJoystick() {
+  // Lire les valeurs analogiques
+  int xValue = analogRead(JOYSTICK_X);
+  int yValue = analogRead(JOYSTICK_Y);
+  int buttonState = digitalRead(JOYSTICK_BUTTON);
+
+  // Anti-rebond
+  if (millis() - lastJoystickAction < DEBOUNCE_DELAY) {
+    return;
   }
+
+  // Détection des directions
+  if (xValue < THRESHOLD_LOW) {
+    // Joystick à GAUCHE - POINT
+    Serial.println("Joystick: GAUCHE → Point (•)");
+    addToMorse(".");
+    playDot();
+    lastJoystickAction = millis();
+    
+  } else if (xValue > THRESHOLD_HIGH) {
+    // Joystick à DROITE - TIRET
+    Serial.println("Joystick: DROITE → Tiret (-)");
+    addToMorse("-");
+    playDash();
+    lastJoystickAction = millis();
+    
+  } else if (yValue > THRESHOLD_HIGH) {
+    // Joystick en BAS - ESPACE
+    Serial.println("Joystick: BAS → Espace");
+    addToMorse(" ");
+    lastJoystickAction = millis();
+    
+  } else if (yValue < THRESHOLD_LOW) {
+    // Joystick en HAUT - VALIDER
+    Serial.println("Joystick: HAUT → Validation");
+    validateCharacter();
+    lastJoystickAction = millis();
+  }
+
+  // Détection du bouton (appuyer)
+  if (buttonState == LOW && lastButtonState == HIGH) {
+    Serial.println("Bouton appuyé → Effacer");
+    clearMorse();
+    delay(DEBOUNCE_DELAY);  // Anti-rebond supplémentaire
+  }
+  
+  lastButtonState = buttonState;
+}
+
+// ==================== SETUP & LOOP ====================
+void setup() {
+  Serial.begin(115200);
+  
+  // Configuration des broches
+  pinMode(JOYSTICK_X, INPUT);
+  pinMode(JOYSTICK_Y, INPUT);
+  pinMode(JOYSTICK_BUTTON, INPUT_PULLUP);
+  pinMode(LED_BUILTIN, OUTPUT);
+  
+  // Connexions
+  setupWiFi();
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+  
+  Serial.println("Setup terminé - En attente de connexion MQTT...");
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi déconnecté - tentative de reconnexion");
-    setupWiFi();
-  }
-  
   if (!client.connected()) {
     reconnectMQTT();
   }
   client.loop();
   
-  readJoystick();
-  checkMorseTimeout();
+  // Gérer le joystick
+  handleJoystick();
   
-  delay(50);
+  delay(50);  // Petit délai pour stabilité
 }
