@@ -1,67 +1,111 @@
+#include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 
 // ==================== CONFIGURATION ====================
-const char* ssid = "TON_WIFI_SSID";
-const char* password = "TON_WIFI_PASSWORD";
+const char* ssid = "AD";
+const char* password = "adrien21";
 
 // MQTT Broker
 const char* mqtt_server = "broker.hivemq.com";
-const int mqtt_port = 8000;
+const int mqtt_port = 1883;
 
-// ID de l'appareil - À CHANGER SI BESOIN
+// ID de l'appareil
 const char* deviceId = "ESP32_MORSE_001";
 
-// Broches du joystick
-#define JOYSTICK_X 34    // Analog pin pour X
-#define JOYSTICK_Y 35    // Analog pin pour Y
-#define JOYSTICK_BUTTON 32  // Digital pin pour le bouton
+// Broches du joystick HW-504
+#define JOYSTICK_X 34    // VRx - Axe X
+#define JOYSTICK_Y 35    // VRy - Axe Y
+#define JOYSTICK_BUTTON 32  // SW - Bouton
 
-// Seuils pour la détection des directions
-#define THRESHOLD_LOW 1000
-#define THRESHOLD_HIGH 3000
-#define DEBOUNCE_DELAY 200  // Délai anti-rebond en ms
+// SEUILS SPÉCIFIQUES POUR HW-504
+#define THRESHOLD_LOW 1000    // En dessous = GAUCHE/HAUT
+#define THRESHOLD_HIGH 3000   // Au dessus = DROITE/BAS
+#define CENTER_MIN 1500       // Zone centrale min
+#define CENTER_MAX 2500       // Zone centrale max
+#define DEBOUNCE_DELAY 300    // Délai anti-rebond
 
 // ==================== VARIABLES GLOBALES ====================
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-String currentMorse = "";  // Stocke le code morse en cours
+String currentMorse = "";
 unsigned long lastJoystickAction = 0;
 bool lastButtonState = HIGH;
+
+// ==================== DÉCLARATIONS DES FONCTIONS ====================
+void addToMorse(String symbol);
+void playDot();
+void playDash();
+void validateCharacter();
+void clearMorse();
+void handleJoystick();
+void printJoystickDebug();  // Pour debug
 
 // ==================== FONCTIONS WiFi ====================
 void setupWiFi() {
   Serial.print("Connexion à ");
   Serial.println(ssid);
-
   WiFi.begin(ssid, password);
-
+  
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
+  
   Serial.println("");
   Serial.println("WiFi connecté");
   Serial.println("Adresse IP: ");
   Serial.println(WiFi.localIP());
 }
 
+// ==================== FONCTIONS MORSE ====================
+void addToMorse(String symbol) {
+  currentMorse += symbol;
+  Serial.println("Code Morse: " + currentMorse);
+  
+  String morseTopic = String("morse/") + deviceId + "/from_device";
+  client.publish(morseTopic.c_str(), ("MORSE:" + currentMorse).c_str());
+}
+
+void playDot() {
+  Serial.println("BIP: Point (•)");
+  delay(100);
+}
+
+void playDash() {
+  Serial.println("BIP: Tiret (-)");
+  delay(300);
+}
+
+void validateCharacter() {
+  if (currentMorse.length() > 0) {
+    Serial.println("Validation du caractère: " + currentMorse);
+    
+    String translationTopic = String("morse/") + deviceId + "/from_device";
+    client.publish(translationTopic.c_str(), ("TRANSLATION:" + currentMorse).c_str());
+    
+    currentMorse = "";
+  }
+}
+
+void clearMorse() {
+  currentMorse = "";
+  Serial.println("Code Morse effacé");
+}
+
 // ==================== FONCTIONS MQTT ====================
 void callback(char* topic, byte* payload, unsigned int length) {
-  // Convertir le payload en String
   String message = "";
   for (int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
-
+  
   Serial.print("Message reçu [");
   Serial.print(topic);
   Serial.print("]: ");
   Serial.println(message);
-
-  // Traiter les commandes du site web
+  
   if (String(topic) == String("morse/") + deviceId + "/from_web") {
     if (message == "DOT") {
       addToMorse(".");
@@ -71,9 +115,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
       playDash();
     } else if (message == "SPACE") {
       addToMorse(" ");
-    } else if (message.startsWith("TRANSLATION:")) {
-      String translation = message.substring(12);
-      Serial.println("Traduction reçue: " + translation);
     }
   }
 }
@@ -82,17 +123,14 @@ void reconnectMQTT() {
   while (!client.connected()) {
     Serial.print("Tentative de connexion MQTT...");
     
-    // ID client unique
     String clientId = "ESP32Client-" + String(random(0xffff), HEX);
     
     if (client.connect(clientId.c_str())) {
       Serial.println("connecté!");
       
-      // S'abonner aux topics
       String subscribeTopic = String("morse/") + deviceId + "/from_web";
       client.subscribe(subscribeTopic.c_str());
       
-      // Publier le statut "prêt"
       String statusTopic = String("morse/") + deviceId + "/status";
       client.publish(statusTopic.c_str(), "DEVICE_READY");
       
@@ -105,55 +143,21 @@ void reconnectMQTT() {
   }
 }
 
-// ==================== FONCTIONS MORSE ====================
-void addToMorse(String symbol) {
-  currentMorse += symbol;
-  Serial.println("Code Morse: " + currentMorse);
+// ==================== FONCTIONS JOYSTICK HW-504 ====================
+void printJoystickDebug() {
+  int xValue = analogRead(JOYSTICK_X);
+  int yValue = analogRead(JOYSTICK_Y);
+  int buttonState = digitalRead(JOYSTICK_BUTTON);
   
-  // Envoyer le code morse actuel au site web
-  String morseTopic = String("morse/") + deviceId + "/from_device";
-  client.publish(morseTopic.c_str(), ("MORSE:" + currentMorse).c_str());
+  Serial.print("X:");
+  Serial.print(xValue);
+  Serial.print(" Y:");
+  Serial.print(yValue);
+  Serial.print(" BTN:");
+  Serial.println(buttonState);
 }
 
-void playDot() {
-  Serial.println("BIP: Point (•)");
-  // Ici tu peux ajouter un buzzer ou une LED
-  // tone(BUZZER_PIN, 1000, 100); // Bip court
-  digitalWrite(LED_BUILTIN, HIGH);
-  delay(100);
-  digitalWrite(LED_BUILTIN, LOW);
-}
-
-void playDash() {
-  Serial.println("BIP: Tiret (-)");
-  // tone(BUZZER_PIN, 1000, 300); // Bip long
-  digitalWrite(LED_BUILTIN, HIGH);
-  delay(300);
-  digitalWrite(LED_BUILTIN, LOW);
-}
-
-void validateCharacter() {
-  if (currentMorse.length() > 0) {
-    Serial.println("Validation du caractère: " + currentMorse);
-    
-    // Ici tu peux ajouter la logique de traduction morse→texte
-    // Pour l'instant on envoie juste le code morse
-    
-    String translationTopic = String("morse/") + deviceId + "/from_device";
-    client.publish(translationTopic.c_str(), ("TRANSLATION:" + currentMorse).c_str());
-    
-    currentMorse = "";  // Reset pour le prochain caractère
-  }
-}
-
-void clearMorse() {
-  currentMorse = "";
-  Serial.println("Code Morse effacé");
-}
-
-// ==================== FONCTIONS JOYSTICK ====================
 void handleJoystick() {
-  // Lire les valeurs analogiques
   int xValue = analogRead(JOYSTICK_X);
   int yValue = analogRead(JOYSTICK_Y);
   int buttonState = digitalRead(JOYSTICK_BUTTON);
@@ -163,28 +167,38 @@ void handleJoystick() {
     return;
   }
 
-  // Détection des directions
-  if (xValue < THRESHOLD_LOW) {
+  // DEBUG - Affiche les valeurs toutes les 2 secondes
+  static unsigned long lastDebug = 0;
+  if (millis() - lastDebug > 2000) {
+    printJoystickDebug();
+    lastDebug = millis();
+  }
+
+  // Détection des directions avec vérification de la zone centrale
+  bool isInCenterX = (xValue > CENTER_MIN && xValue < CENTER_MAX);
+  bool isInCenterY = (yValue > CENTER_MIN && yValue < CENTER_MAX);
+  
+  if (xValue < THRESHOLD_LOW && isInCenterY) {
     // Joystick à GAUCHE - POINT
     Serial.println("Joystick: GAUCHE → Point (•)");
     addToMorse(".");
     playDot();
     lastJoystickAction = millis();
     
-  } else if (xValue > THRESHOLD_HIGH) {
+  } else if (xValue > THRESHOLD_HIGH && isInCenterY) {
     // Joystick à DROITE - TIRET
     Serial.println("Joystick: DROITE → Tiret (-)");
     addToMorse("-");
     playDash();
     lastJoystickAction = millis();
     
-  } else if (yValue > THRESHOLD_HIGH) {
+  } else if (yValue > THRESHOLD_HIGH && isInCenterX) {
     // Joystick en BAS - ESPACE
     Serial.println("Joystick: BAS → Espace");
     addToMorse(" ");
     lastJoystickAction = millis();
     
-  } else if (yValue < THRESHOLD_LOW) {
+  } else if (yValue < THRESHOLD_LOW && isInCenterX) {
     // Joystick en HAUT - VALIDER
     Serial.println("Joystick: HAUT → Validation");
     validateCharacter();
@@ -195,7 +209,7 @@ void handleJoystick() {
   if (buttonState == LOW && lastButtonState == HIGH) {
     Serial.println("Bouton appuyé → Effacer");
     clearMorse();
-    delay(DEBOUNCE_DELAY);  // Anti-rebond supplémentaire
+    delay(DEBOUNCE_DELAY);
   }
   
   lastButtonState = buttonState;
@@ -209,14 +223,20 @@ void setup() {
   pinMode(JOYSTICK_X, INPUT);
   pinMode(JOYSTICK_Y, INPUT);
   pinMode(JOYSTICK_BUTTON, INPUT_PULLUP);
-  pinMode(LED_BUILTIN, OUTPUT);
+  
+  Serial.println("=== JOYSTICK HW-504 TEST ===");
+  Serial.println("Attente de la calibration...");
+  delay(2000);
+  
+  // Affiche les valeurs initiales
+  printJoystickDebug();
   
   // Connexions
   setupWiFi();
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
   
-  Serial.println("Setup terminé - En attente de connexion MQTT...");
+  Serial.println("Setup terminé");
 }
 
 void loop() {
@@ -225,8 +245,7 @@ void loop() {
   }
   client.loop();
   
-  // Gérer le joystick
   handleJoystick();
   
-  delay(50);  // Petit délai pour stabilité
+  delay(50);
 }
