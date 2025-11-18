@@ -1,5 +1,6 @@
 dépendances :
 (node.js)
+(déjà installé je crois)
 ```
 npm install
 ```
@@ -14,5 +15,7 @@ en bas a gauche de vs code y'a une fleche (fleche qui pointe a droite): cliquez 
 Commandes pour lancer la platforme web:
 ```
 npm start
+OU
+node server.js
 ```
 http://localhost:3000

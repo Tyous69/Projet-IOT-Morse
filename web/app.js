@@ -236,8 +236,10 @@ function connectMQTT() {
     
     try {
         mqttClient = mqtt.connect(server, {
-            clientId: `web_morse_${Date.now()}`,
-            clean: true
+            clientId: `morse_web_${currentUser}_${Math.random().toString(16).slice(2)}`,
+            clean: true,
+            reconnectPeriod: 5000,  // ⚠️ IMPORTANT - reconnexion auto
+            connectTimeout: 10000   // ⚠️ IMPORTANT - timeout de connexion
         });
         
         mqttClient.on('connect', () => {
